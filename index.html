@@ -1,0 +1,279 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <title>Moiré Studio — Shareable</title>
+  <style>
+    body {
+      margin: 0;
+      background: #1a1a1a;
+      color: #eee;
+      font-family: -apple-system, sans-serif;
+      display: flex;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    #controls {
+      width: 320px;
+      padding: 25px;
+      background: #252525;
+      border-right: 1px solid #333;
+      overflow-y: auto;
+      z-index: 10;
+    }
+
+    .canvas-container {
+      flex-grow: 1;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      background: #111;
+      padding: 20px;
+    }
+
+    canvas {
+      background: white;
+      box-shadow: 0 0 50px rgba(0, 0, 0, 0.5);
+      max-width: 100%;
+      max-height: 100%;
+    }
+
+    .group {
+      margin-bottom: 20px;
+    }
+
+    label {
+      display: block;
+      font-size: 11px;
+      margin-bottom: 8px;
+      color: #888;
+      text-transform: uppercase;
+      font-weight: bold;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: #2a6df5;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 8px;
+      background: #333;
+      border: 1px solid #444;
+      color: white;
+      border-radius: 4px;
+      box-sizing: border-box;
+    }
+
+    button {
+      width: 100%;
+      padding: 12px;
+      cursor: pointer;
+      border: none;
+      border-radius: 4px;
+      font-weight: bold;
+      margin-bottom: 10px;
+    }
+
+    .btn-gen {
+      background: #2a6df5;
+      color: white;
+    }
+
+    .btn-save {
+      background: #333;
+      color: #ccc;
+      border: 1px solid #444;
+    }
+
+    #status {
+      font-size: 10px;
+      color: #ffab00;
+      height: 14px;
+      margin-bottom: 10px;
+    }
+  </style>
+</head>
+
+<body>
+
+  <div id="controls">
+    <h3>🧑‍🚀 bros a nasa scientist</h3>
+    <div id="status">Ready</div>
+
+    <div class="group">
+      <label>Seed</label>
+      <input type="text" id="seedInput" oninput="generate(true)">
+    </div>
+    <button class="btn-save" onclick="randomizeSeed()">Randomize</button>
+
+    <hr style="border:0; border-top:1px solid #333; margin: 25px 0;">
+
+    <div class="group">
+      <label>Points</label>
+      <input type="range" id="complexity" min="1" max="12" value="4" oninput="generate(true)">
+    </div>
+    <div class="group">
+      <label>Frequency</label>
+      <input type="range" id="frequency" min="0.005" max="0.2" step="0.005" value="0.04" oninput="generate(true)">
+    </div>
+    <div class="group">
+      <label>Grain</label>
+      <input type="range" id="grain" min="0" max="80" value="40" oninput="generate(true)">
+    </div>
+    <div class="group">
+      <label>Vibrance</label>
+      <input type="range" id="vibrance" min="0.2" max="2.5" step="0.1" value="1.2" oninput="generate(true)">
+    </div>
+
+    <button class="btn-save" onclick="saveCanvas()">💾 Save PNG</button>
+    <button class="btn-save" onclick="copyLink()">🔗 Copy Link</button>
+  </div>
+
+  <div class="canvas-container">
+    <canvas id="mainCanvas"></canvas>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const status = document.getElementById('status');
+    canvas.width = 1000;
+    canvas.height = 1300;
+
+    // --- SEEDED RANDOM (SFC32) ---
+    function cyrb128(str) {
+      let h1 = 1779033703, h2 = 2778089390, h3 = 2496050463, h4 = 3577013855;
+      for (let i = 0, k; i < str.length; i++) {
+        k = str.charCodeAt(i);
+        h1 = h2 ^ Math.imul(h1 ^ k, 597399067); h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+        h3 = h4 ^ Math.imul(h3 ^ k, 951274213); h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+      }
+      return [(h1 >>> 0), (h2 >>> 0), (h3 >>> 0), (h4 >>> 0)];
+    }
+    function sfc32(a, b, c, d) {
+      return function () {
+        a >>>= 0; b >>>= 0; c >>>= 0; d >>>= 0;
+        var t = (a + b | 0) + d | 0; d = d + 1 | 0;
+        a = b ^ b >>> 9; b = c + (c << 3) | 0;
+        c = (c << 21 | c >>> 11); c = c + t | 0;
+        return (t >>> 0) / 4294967296;
+      }
+    }
+
+    // --- CORE LOGIC ---
+    function updateURL() {
+      const params = new URLSearchParams();
+      params.set('s', document.getElementById('seedInput').value);
+      params.set('c', document.getElementById('complexity').value);
+      params.set('f', document.getElementById('frequency').value);
+      params.set('g', document.getElementById('grain').value);
+      params.set('v', document.getElementById('vibrance').value);
+      window.history.replaceState({}, '', `${location.pathname}?${params.toString()}`);
+    }
+
+    function loadFromURL() {
+      const params = new URLSearchParams(window.location.search);
+      if (params.has('s')) document.getElementById('seedInput').value = params.get('s');
+      if (params.has('c')) document.getElementById('complexity').value = params.get('c');
+      if (params.has('f')) document.getElementById('frequency').value = params.get('f');
+      if (params.has('g')) document.getElementById('grain').value = params.get('g');
+      if (params.has('v')) document.getElementById('vibrance').value = params.get('v');
+      return params.has('s');
+    }
+
+    let debounceTimer;
+    function generate(isUserAction = false) {
+      if (isUserAction) updateURL();
+
+      status.innerText = "Rendering...";
+      clearTimeout(debounceTimer);
+
+      // Debounce prevents the browser from crashing while sliding ranges
+      debounceTimer = setTimeout(() => {
+        const seedVal = document.getElementById('seedInput').value || "art";
+        const seed = cyrb128(seedVal);
+        const rand = sfc32(seed[0], seed[1], seed[2], seed[3]);
+
+        const comp = parseInt(document.getElementById('complexity').value);
+        const freq = parseFloat(document.getElementById('frequency').value);
+        const grainAmt = parseInt(document.getElementById('grain').value);
+        const vib = parseFloat(document.getElementById('vibrance').value);
+
+        const margin = 15;
+        const bgR = 255, bgG = 255,
+          bgB = 255;
+
+        const imgData = ctx.createImageData(canvas.width, canvas.height);
+        const pixels = imgData.data;
+
+        const centers = Array.from({ length: comp }, () => ({
+          x: rand() * canvas.width,
+          y: rand() * canvas.height,
+          color: [rand() * 255 * vib, rand() * 255 * vib, rand() * 255 * vib],
+          phase: rand() * Math.PI * 2
+        }));
+
+        for (let i = 0; i < pixels.length; i += 4) {
+          const x = (i / 4) % canvas.width;
+          const y = Math.floor((i / 4) / canvas.width);
+
+          if (x < margin || x > canvas.width - margin || y < margin || y > canvas.height - margin) {
+            pixels[i] = bgR;
+            pixels[i + 1] = bgG;
+            pixels[i + 2] = bgB;
+            pixels[i + 3] = 255;
+            continue;
+          };
+
+          let r = 0, g = 0, b = 0;
+
+          centers.forEach(c => {
+            const d = Math.sqrt((x - c.x) ** 2 + (y - c.y) ** 2);
+            const w = (Math.sin(d * freq + c.phase) + 1) / 2;
+            r += c.color[0] * w; g += c.color[1] * w; b += c.color[2] * w;
+          })
+
+
+          const n = (rand() - 0.5) * grainAmt;
+          pixels[i] = (r / comp) + n;
+          pixels[i + 1] = (g / comp) + n;
+          pixels[i + 2] = (b / comp) + n;
+          pixels[i + 3] = 255;
+        };
+        ctx.putImageData(imgData, 0, 0);
+        status.innerText = "ID: " + seedVal;
+
+      }, 50);
+    }
+
+    function randomizeSeed() {
+      document.getElementById('seedInput').value = Math.random().toString(36).substring(2, 8);
+      generate(true);
+    }
+
+    function copyLink() {
+      navigator.clipboard.writeText(window.location.href);
+      alert("Link copied to clipboard!");
+    }
+
+    function saveCanvas() {
+      const link = document.createElement('a');
+      link.download = `art-${document.getElementById('seedInput').value}.png`;
+      link.href = canvas.toDataURL();
+      link.click();
+    }
+
+    window.onload = () => {
+      const hasSharedState = loadFromURL();
+      if (!hasSharedState) randomizeSeed();
+      else generate(false);
+    }
+
+  </script>
+</body>
+
+</html>
